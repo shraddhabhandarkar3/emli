@@ -1,4 +1,4 @@
-# ── Secrets (NEVER commit these) ─────────────────────────────────────────────
+# ── Secrets (Please never commit this!!) ─────────────────────────────────────────────
 .env
 token/
 credentials.json
