@@ -1,0 +1,21 @@
+# ── Database ──────────────────────────────────
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+psycopg2-binary>=2.9.9
+
+# ── Config / Env ──────────────────────────────
+python-dotenv>=1.0.0
+
+# ── Gmail (Ticket 1) ──────────────────────────
+# google-auth-oauthlib>=1.2
+# google-api-python-client>=2.120
+
+# ── Notion (Ticket 4) ─────────────────────────
+# notion-client>=2.2
+
+# ── Scheduler (Ticket 1 / 4) ──────────────────
+# apscheduler>=3.10
+
+# ── Testing ───────────────────────────────────
+pytest>=8.0.0
+pytest-postgresql>=6.0.0

@@ -1,0 +1,20 @@
+# ── Secrets (NEVER commit these) ─────────────────────────────────────────────
+.env
+token/
+credentials.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+emli/              # virtual environment
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
