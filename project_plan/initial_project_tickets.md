@@ -90,9 +90,9 @@ CREATE TABLE pipeline_state (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- One row per unique job application (deduplicated by company+role)
+-- One row per unique job application (deduplicated by deterministic hash of company+role)
 CREATE TABLE applications (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id  UUID PRIMARY KEY, -- Deterministic SHA-256 hash
   company_name    TEXT NOT NULL,
   role_title      TEXT,
   applied_date    DATE,
@@ -101,11 +101,11 @@ CREATE TABLE applications (
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
--- One row per classified email
+-- One row per classified email (append-only base table)
 CREATE TABLE email_events (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   gmail_id        TEXT UNIQUE NOT NULL,   -- Gmail message ID (idempotency key)
-  application_id  UUID REFERENCES applications(id),
+  application_id  UUID,                   -- Grouping key (deterministic hash), NO foreign key constraint
   category        TEXT NOT NULL,
   subject         TEXT,
   sender          TEXT,
@@ -122,19 +122,35 @@ CREATE TABLE email_events (
 ### Scope
 - **Alembic** for schema migrations (version-controlled, reproducible)
 - **SQLAlchemy** ORM for all DB access (no raw SQL in application code)
-- Deduplication: `gmail_id` as idempotency key prevents double-processing
-- Application-level deduplication: fuzzy match on `company_name + role_title` to group emails under one `application` record
-- `notion_synced` flag used by the sync job (Ticket 4) to track what's been pushed
+- Deduplication: `gmail_id` as idempotency key prevents double-processing directly at the DB level (PostgreSQL `ON CONFLICT DO NOTHING`)
+- Decoupled Architecture: `email_events` acts as an append-only log. The extraction script (Ticket 2) strictly inserts here and does not upsert `applications`.
+- `notion_synced` flag used by the sync job to track what's been pushed
 
 ### Deliverables
 - `db/models.py`
 - `db/migrations/` (Alembic env + initial migration)
-- `db/repository.py` (CRUD layer)
-- Unit tests for deduplication logic
+- `db/repository.py` (CRUD rules enforcing append-only email insertion)
 
 ---
 
-## Ticket 4 — Notion Sync Job
+## Ticket 4 — Applications ETL Job
+
+**Goal:** Asynchronously rebuild and update the localized `applications` cache downstream from the append-only `email_events` log.
+
+### Scope
+- A standalone Python script that queries `email_events` incrementally (e.g. using time windows or fetching all events)
+- Groups events by `application_id`
+- Upserts records into the `applications` table natively parsing the events to deduce values like `applied_date` or current overall status
+- Follows a strict one-way data flow: `email_events` -> ETL script -> `applications`
+
+### Deliverables
+- `services/etl/applications_builder.py`
+- `services/etl/scheduler.py`
+- Unit tests for upsert prioritization rules
+
+---
+
+## Ticket 5 — Notion Sync Job
 
 **Goal:** Maintain a live Notion page (or database) that reflects the current state of all job applications, updated on a cron schedule.
 
@@ -166,7 +182,7 @@ A **Notion Database** (not a plain page) with one row per application:
 
 ---
 
-## Ticket 5 — Dockerization & Plug-and-Play Setup
+## Ticket 6 — Dockerization & Plug-and-Play Setup
 
 **Goal:** The entire stack runs with `docker compose up` after a user adds their keys to a `.env` file. No local installs required beyond Docker.
 
@@ -177,6 +193,7 @@ A **Notion Database** (not a plain page) with one row per application:
 | `postgres` | `postgres:16-alpine` | Database |
 | `ollama` | `ollama/ollama` | Local LLM inference |
 | `ingestion` | Custom (Python 3.12-slim) | Gmail fetch + classify + store |
+| `applications_etl` | Custom (Python 3.12-slim) | DB → Applications ETL Upsert |
 | `notion_sync` | Custom (Python 3.12-slim) | DB → Notion sync |
 
 ### Scope
@@ -235,7 +252,7 @@ make test        # run pytest inside containers
 
 ---
 
-## Ticket 6 — User-Configurable Model Selection *(final polish)*
+## Ticket 7 — User-Configurable Model Selection *(final polish)*
 
 **Goal:** Let users swap the Ollama model at any time without touching Docker files or source code.
 
@@ -263,7 +280,7 @@ make test        # run pytest inside containers
 ## Suggested Build Order
 
 ```
-T3 (DB Schema) → T1 (Ingestion) → T2 (Classifier) → T4 (Notion Sync) → T5 (Docker) → T6 (Model Config)
+T3 (DB Schema) → T1 (Ingestion) → T2 (Classifier) → T4 (ETL Job) → T5 (Notion Sync) → T6 (Docker) → T7 (Model Config)
 ```
 
-Start with the database schema since every other service depends on it. Docker comes last so each service can be developed and tested locally first, then wired together. T6 is a final polish pass once everything is working end-to-end.
+Start with the database schema since every other service depends on it. Docker comes last so each service can be developed and tested locally first, then wired together. T7 is a final polish pass once everything is working end-to-end.
