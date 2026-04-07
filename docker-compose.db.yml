@@ -1,0 +1,30 @@
+# Local dev only — single PostgreSQL container.
+# Full docker-compose.yml (with Ollama, ingestion, notion_sync) comes in Ticket 5.
+#
+# Usage:
+#   docker compose -f docker-compose.db.yml up -d    # start
+#   docker compose -f docker-compose.db.yml down     # stop (data persisted in volume)
+#   docker compose -f docker-compose.db.yml down -v  # stop + wipe data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: emli_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-emli}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emli}
+      POSTGRES_DB: ${POSTGRES_DB:-emli}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - emli_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-emli} -d ${POSTGRES_DB:-emli}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  emli_pgdata:
+    name: emli_pgdata
