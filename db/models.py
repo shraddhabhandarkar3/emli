@@ -11,19 +11,17 @@ Tables
 
 import uuid
 from datetime import datetime, date
-from typing import List, Optional
 
 from sqlalchemy import (
     Boolean,
     Column,
     Date,
     DateTime,
-    ForeignKey,
     Text,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, relationship
+from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
@@ -54,11 +52,6 @@ class Application(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # Relationship: one application → many email events
-    email_events: Mapped[List["EmailEvent"]] = relationship(
-        "EmailEvent", back_populates="application", lazy="select"
-    )
-
     def __repr__(self) -> str:
         return (
             f"<Application id={self.application_id} "
@@ -83,8 +76,9 @@ class EmailEvent(Base):
     gmail_id: str = Column(Text, unique=True, nullable=False)
     application_id: uuid.UUID | None = Column(
         UUID(as_uuid=True),
-        ForeignKey("applications.application_id"),
         nullable=True,
+        # Deterministic hash of (company_name, role_title) — see db/hash_utils.py.
+        # No FK: email_events is append-only and does not require an applications row.
     )
     category: str = Column(Text, nullable=False)
     subject: str | None = Column(Text, nullable=True)
@@ -94,11 +88,6 @@ class EmailEvent(Base):
     notion_synced: bool = Column(Boolean, default=False, nullable=False)
     created_at: datetime = Column(
         DateTime(timezone=True), server_default=func.now()
-    )
-
-    # Relationship back to application
-    application: Mapped[Optional["Application"]] = relationship(
-        "Application", back_populates="email_events"
     )
 
     def __repr__(self) -> str:

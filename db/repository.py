@@ -6,14 +6,12 @@ these functions — no raw SQL elsewhere.
 
 Design principles:
   • Each function accepts a session parameter so callers control transactions.
-  • Upsert semantics on applications (insert-or-ignore on PK collision).
-  • Idempotent email_events insertion (UNIQUE gmail_id → skip if duplicate).
+  • email_events is append-only — duplicate gmail_ids are caught by the DB UNIQUE constraint.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import select, update
@@ -21,62 +19,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from db.hash_utils import make_application_id
-from db.models import Application, EmailEvent
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Applications
-# ─────────────────────────────────────────────────────────────────────────────
-
-def upsert_application(
-    session: Session,
-    company_name: str,
-    role_title: Optional[str],
-    applied_date: Optional[date] = None,
-) -> uuid.UUID:
-    """Insert a new application row, or do nothing if the hash already exists.
-
-    Returns the application_id UUID so callers can use it immediately.
-    """
-    app_id = make_application_id(company_name, role_title)
-
-    stmt = (
-        pg_insert(Application)
-        .values(
-            application_id=app_id,
-            company_name=company_name,
-            role_title=role_title,
-            applied_date=applied_date,
-        )
-        .on_conflict_do_update(
-            index_elements=["application_id"],
-            # Only update applied_date if we now have a value and didn't before
-            set_={
-                "updated_at": datetime.utcnow(),
-                "applied_date": pg_insert(Application)
-                .excluded.applied_date,
-            },
-            where=Application.applied_date.is_(None),
-        )
-    )
-    session.execute(stmt)
-    return app_id
-
-
-def get_application(session: Session, application_id: uuid.UUID) -> Optional[Application]:
-    """Fetch an application by its hash UUID."""
-    return session.get(Application, application_id)
+from db.models import EmailEvent
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Email Events
 # ─────────────────────────────────────────────────────────────────────────────
-
-def is_email_processed(session: Session, gmail_id: str) -> bool:
-    """Return True if this Gmail message has already been stored."""
-    stmt = select(EmailEvent.gmail_id).where(EmailEvent.gmail_id == gmail_id).limit(1)
-    return session.execute(stmt).scalar() is not None
-
 
 def insert_email_event(
     session: Session,
@@ -87,33 +35,35 @@ def insert_email_event(
     role_title: Optional[str] = None,
     subject: Optional[str] = None,
     sender: Optional[str] = None,
-    applied_date: Optional[date] = None,
-) -> Optional[EmailEvent]:
-    """Insert a classified email event.
+) -> bool:
+    """Append-only logger for classified email events.
 
-    Steps:
-      1. Check idempotency — skip if gmail_id already in DB.
-      2. Upsert the parent application row (creates if new, no-op if exists).
-      3. Insert the email_event row linked to that application.
+    Uses INSERT ... ON CONFLICT (gmail_id) DO NOTHING so duplicates are
+    silently skipped at the DB level — no pre-flight SELECT, no exception.
 
-    Returns the new EmailEvent, or None if already processed.
+    Does NOT touch the applications table. The application_id stored here
+    is the SHA-256 hash of (company_name, role_title), used purely as a
+    grouping key. The separate applications script owns that table.
+
+    Returns:
+        True  — row was inserted (new email).
+        False — row was skipped (gmail_id already exists).
     """
-    if is_email_processed(session, gmail_id):
-        return None
-
-    app_id = upsert_application(session, company_name, role_title, applied_date)
-
-    event = EmailEvent(
-        gmail_id=gmail_id,
-        application_id=app_id,
-        category=category,
-        subject=subject,
-        sender=sender,
-        company_name=company_name,
-        role_title=role_title,
+    stmt = (
+        pg_insert(EmailEvent)
+        .values(
+            gmail_id=gmail_id,
+            application_id=make_application_id(company_name, role_title),
+            category=category,
+            subject=subject,
+            sender=sender,
+            company_name=company_name,
+            role_title=role_title,
+        )
+        .on_conflict_do_nothing(index_elements=["gmail_id"])
     )
-    session.add(event)
-    return event
+    result = session.execute(stmt)
+    return result.rowcount == 1
 
 
 def get_unsynced_events(session: Session) -> list[EmailEvent]:
