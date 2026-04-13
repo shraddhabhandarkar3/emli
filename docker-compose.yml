@@ -1,0 +1,40 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: emli_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-emli}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emli}
+      POSTGRES_DB:       ${POSTGRES_DB:-emli}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - emli_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-emli} -d ${POSTGRES_DB:-emli}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Ollama (local LLM inference) ───────────────────────────────────────────
+  # Model weights are stored in the ollama_data volume — persisted across restarts.
+  # Pull the model once with: make pull-model
+  # Python services connect via http://localhost:11434 (local) or
+  # http://ollama:11434 (inside Docker network in Ticket 5).
+  ollama:
+    image: ollama/ollama
+    container_name: emli_ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  emli_pgdata:
+    name: emli_pgdata
+  ollama_data:
+    name: emli_ollama_data

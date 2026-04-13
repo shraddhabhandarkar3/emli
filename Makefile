@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 VENV  := source emli/bin/activate &&
 
-.PHONY: help auth fetch migrate up down logs reset-db test
+.PHONY: help auth fetch scheduler test migrate reset-db up down logs pull-model
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help: ## Show available targets
@@ -28,18 +28,22 @@ migrate: ## Apply pending Alembic migrations
 	@$(VENV) alembic upgrade head
 
 reset-db: ## ⚠ Wipe DB volume and re-run migrations (dev only)
-	docker compose -f docker-compose.db.yml down -v
-	docker compose -f docker-compose.db.yml up -d
+	docker compose stop postgres
+	docker volume rm emli_emli_pgdata || true
+	docker compose up -d postgres
 	@echo "Waiting for Postgres to be ready…" && sleep 5
 	@$(VENV) alembic upgrade head
 	@echo "✓ DB reset complete"
 
 # ── Docker ─────────────────────────────────────────────────────────────────────
-up: ## Start Postgres (full compose comes in Ticket 5)
-	docker compose -f docker-compose.db.yml up -d
+up: ## Start Postgres + Ollama
+	docker compose up -d
 
-down: ## Stop containers (data preserved in volume)
-	docker compose -f docker-compose.db.yml down
+pull-model: ## [RUN ONCE] Pull the Ollama model into the volume (~2 GB)
+	docker exec emli_ollama ollama pull $$(grep OLLAMA_MODEL .env | cut -d= -f2)
 
-logs: ## Follow container logs
-	docker compose -f docker-compose.db.yml logs -f
+down: ## Stop containers (data preserved in volumes)
+	docker compose down
+
+logs: ## Follow all container logs
+	docker compose logs -f

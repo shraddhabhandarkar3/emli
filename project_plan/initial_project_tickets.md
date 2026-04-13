@@ -45,9 +45,6 @@ A fully local, dockerized pipeline that monitors a student's Gmail inbox, classi
 | `assessment` | Take-home test / coding challenge |
 | `offer_extended` | Offer letter received |
 | `rejected` | Rejection notice |
-| `withdrawn` | Candidate withdrew |
-| `ghosted` | No reply after X days (derived, not classified) |
-| `other_job_related` | Job-related but doesn't fit above |
 
 ### Scope
 - Run a **local LLM** (e.g. **Ollama** with `llama3.2:3b` or `phi3:mini`) as a sidecar Docker service
