@@ -194,6 +194,9 @@ def _get_message(service, msg_id: str, retries: int = 4) -> Optional[dict]:
                 .execute()
             )
         except HttpError as exc:
+            if exc.resp.status == 404:
+                logger.warning("Message %s not found (likely permanently deleted) — skipping.", msg_id)
+                return None
             if exc.resp.status in (429, 500, 503):
                 wait = 2 ** attempt
                 logger.warning("Rate limited — retrying in %ds…", wait)
