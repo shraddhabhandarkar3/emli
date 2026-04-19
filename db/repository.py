@@ -14,12 +14,12 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from db.hash_utils import make_application_id
-from db.models import EmailEvent
+from db.models import Application, EmailEvent
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,3 +86,44 @@ def mark_notion_synced(session: Session, event_ids: list[uuid.UUID]) -> int:
     )
     result = session.execute(stmt)
     return result.rowcount
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Applications (ETL upsert)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def upsert_application(
+    session: Session,
+    *,
+    application_id: uuid.UUID,
+    company_name: str,
+    role_title: Optional[str],
+    status: str,
+    applied_date,
+) -> None:
+    """Upsert one row into the applications table.
+
+    Uses INSERT ... ON CONFLICT (application_id) DO UPDATE so re-running the
+    ETL is always safe and idempotent.
+    """
+    stmt = (
+        pg_insert(Application)
+        .values(
+            application_id=application_id,
+            company_name=company_name,
+            role_title=role_title,
+            category=status,
+            applied_date=applied_date,
+        )
+        .on_conflict_do_update(
+            index_elements=["application_id"],
+            set_={
+                "company_name": company_name,
+                "role_title": role_title,
+                "category": status,
+                "applied_date": applied_date,
+                "updated_at": func.now(),
+            },
+        )
+    )
+    session.execute(stmt)
