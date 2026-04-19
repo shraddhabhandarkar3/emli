@@ -44,6 +44,7 @@ class Application(Base):
     )
     company_name: str = Column(Text, nullable=False)
     role_title: str | None = Column(Text, nullable=True)
+    category: str | None = Column(Text, nullable=True)   # latest resolved category from ETL (see email_events.category)
     applied_date: date | None = Column(Date, nullable=True)
     created_at: datetime = Column(
         DateTime(timezone=True), server_default=func.now()
