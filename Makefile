@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 VENV  := source emli/bin/activate &&
 
-.PHONY: help auth fetch scheduler test migrate reset-db up down logs pull-model
+.PHONY: help auth fetch etl scheduler test migrate reset-db up down logs pull-model
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help: ## Show available targets
@@ -16,6 +16,9 @@ auth: ## [RUN ONCE] Gmail OAuth — opens browser, saves token to token/
 # ── Local dev ──────────────────────────────────────────────────────────────────
 fetch: ## Run the email ingestion script once (local)
 	@$(VENV) python -m services.ingestion.run_fetch
+
+etl: ## Run the applications ETL job (email_events → applications table)
+	@$(VENV) python -m services.etl.run_etl
 
 scheduler: ## Run the ingestion scheduler loop (local, Ctrl+C to stop)
 	@$(VENV) python -m services.ingestion.scheduler
