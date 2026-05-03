@@ -87,6 +87,9 @@ class EmailEvent(Base):
     company_name: str = Column(Text, nullable=False)
     role_title: str | None = Column(Text, nullable=True)
     notion_synced: bool = Column(Boolean, default=False, nullable=False)
+    received_at: datetime | None = Column(
+        DateTime(timezone=True), nullable=True  # actual email date from Gmail headers
+    )
     created_at: datetime = Column(
         DateTime(timezone=True), server_default=func.now()
     )

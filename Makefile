@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 VENV  := source emli/bin/activate &&
 
-.PHONY: help auth fetch etl scheduler test migrate reset-db up down logs pull-model
+.PHONY: help auth fetch etl sync pipeline scheduler test migrate reset-db up down logs pull-model
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help: ## Show available targets
@@ -20,7 +20,25 @@ fetch: ## Run the email ingestion script once (local)
 etl: ## Run the applications ETL job (email_events → applications table)
 	@$(VENV) python -m services.etl.run_etl
 
-scheduler: ## Run the ingestion scheduler loop (local, Ctrl+C to stop)
+sync: ## Sync unsynced applications to Notion database
+	@$(VENV) python -m services.notion_sync.run_sync
+
+resync: ## Force re-sync ALL applications to Notion (resets synced flags first)
+	@$(VENV) python -c "from db.session import get_session; from db.models import EmailEvent; from sqlalchemy import update; s=get_session().__enter__(); s.execute(update(EmailEvent).values(notion_synced=False)); print('✓ Reset notion_synced for all rows')"
+	@$(VENV) python -m services.notion_sync.run_sync
+
+pipeline: ## Run the full pipeline once: start DB → fetch → ETL → Notion sync
+	@echo "── Starting services ──────────────────────────────────"
+	@$(MAKE) up
+	@echo "── Step 1/3: Fetching emails ──────────────────────────"
+	@$(VENV) python -m services.ingestion.run_fetch
+	@echo "── Step 2/3: Running ETL ──────────────────────────────"
+	@$(VENV) python -m services.etl.run_etl
+	@echo "── Step 3/3: Syncing to Notion ────────────────────────"
+	@$(VENV) python -m services.notion_sync.run_sync
+	@echo "✓ Pipeline complete!"
+
+scheduler: ## Run the full pipeline on a loop (Ctrl+C to stop)
 	@$(VENV) python -m services.ingestion.scheduler
 
 test: ## Run the test suite

@@ -16,8 +16,7 @@ You are a precise email classification system. This email has already been confi
 Extract the following fields on a best-effort basis. Use null if not found — do not guess.
 
 - `company_name`: The hiring company (not the ATS platform like Greenhouse or Workday)
-- `role_title`: The specific job title mentioned
-- `interview_date`: ISO 8601 date if an interview date is explicitly stated (e.g. "2024-03-15"), otherwise null
+- `role_title`: The specific job title mentioned. Check the email **subject line first** — role titles frequently appear there (e.g. "Applied: Data Analyst at Stripe", "Your application for Software Engineer"). If you find a job title anywhere in the subject or body, extract it. Only return null if no job title appears anywhere in the email.
 - `confidence`: Your confidence in the category label — "high", "medium", or "low"
 
 ## Rules
