@@ -2,10 +2,22 @@
 llm_client.py
 ─────────────
 Unified wrapper for LLM requests.
-Supports both a local Ollama container and external APIs (OpenAI).
+Supports both a local Ollama container and external APIs (OpenAI-compatible).
 
 Environment variables:
-  LLM_PROVIDER      "ollama" or "api" (default: ollama)
+  LLM_PROVIDER          "ollama" (default) or "api"
+
+  -- Ollama --
+  OLLAMA_BASE_URL       Base URL for Ollama  (default: http://localhost:11434)
+  OLLAMA_MODEL          Model name           (default: llama3.2:3b)
+
+  -- External API (OpenAI-compatible: Groq, NVIDIA NIM, OpenRouter, etc.) --
+  API_BASE_URL          Provider base URL    (e.g. https://api.groq.com/openai/v1)
+  API_KEY               API key
+  API_MODEL             Model name           (e.g. llama-3.3-70b-versatile)
+  LLM_TIMEOUT           Request timeout (s)  (default: 60)
+                        Use 30 for fast paid APIs (Groq/OpenAI),
+                        120 for slow providers (NVIDIA NIM free tier).
 """
 
 import json
@@ -27,9 +39,12 @@ OLLAMA_MODEL: str = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 _OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
 _OLLAMA_TIMEOUT = 300
 
-# ── External API Config ──────────────────────────────────────────────────────
+# ── External API (OpenAI-compatible: Groq, NVIDIA NIM, OpenRouter…) ──────────
 API_KEY: str = os.environ.get("API_KEY", "")
-API_MODEL: str = os.environ.get("API_MODEL", "gemini-1.5-flash")
+API_MODEL: str = os.environ.get("API_MODEL", "llama-3.3-70b-versatile")
+# LLM_TIMEOUT: set to 30 for fast paid APIs (Groq/OpenAI), 120 for slow
+# providers (NVIDIA NIM free tier). Default 60s suits most cases.
+_API_TIMEOUT: float = float(os.environ.get("LLM_TIMEOUT", "60"))
 
 _openai_client = None
 
@@ -93,7 +108,7 @@ def _call_External_API(prompt: str) -> dict:
                 {"role": "system", "content": "You are a JSON data extractor. ALWAYS return valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            timeout=30.0,
+            timeout=_API_TIMEOUT,
         )
         raw_response = response.choices[0].message.content or "{}"
         return json.loads(raw_response)
@@ -119,7 +134,7 @@ def _check_External_API_health() -> bool:
             model=API_MODEL,
             messages=[{"role": "user", "content": "hi"}],
             max_tokens=1,
-            timeout=5.0,
+            timeout=30.0,  # NVIDIA NIM cold-starts can take 10-15s
         )
         return True
     except openai.OpenAIError as exc:

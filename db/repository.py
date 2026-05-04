@@ -12,7 +12,7 @@ Design principles:
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -26,6 +26,13 @@ from db.models import Application, EmailEvent
 # Email Events
 # ─────────────────────────────────────────────────────────────────────────────
 
+def gmail_id_exists(session: Session, gmail_id: str) -> bool:
+    """Return True if this gmail_id is already in email_events (already classified)."""
+    return session.query(
+        session.query(EmailEvent).filter(EmailEvent.gmail_id == gmail_id).exists()
+    ).scalar()
+
+
 def insert_email_event(
     session: Session,
     *,
@@ -35,6 +42,7 @@ def insert_email_event(
     role_title: Optional[str] = None,
     subject: Optional[str] = None,
     sender: Optional[str] = None,
+    received_at: Optional[Any] = None,  # actual email date from Gmail headers
 ) -> bool:
     """Append-only logger for classified email events.
 
@@ -46,7 +54,7 @@ def insert_email_event(
     grouping key. The separate applications script owns that table.
 
     Returns:
-        True  — row was inserted (new email).
+        True  — row was inserted successfully.
         False — row was skipped (gmail_id already exists).
     """
     stmt = (
@@ -59,6 +67,7 @@ def insert_email_event(
             sender=sender,
             company_name=company_name,
             role_title=role_title,
+            received_at=received_at,
         )
         .on_conflict_do_nothing(index_elements=["gmail_id"])
     )
@@ -127,3 +136,79 @@ def upsert_application(
         )
     )
     session.execute(stmt)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notion Sync queries
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_applications_with_stats(session: Session) -> List[dict[str, Any]]:
+    """Return applications that have at least one unsynced email event.
+
+    Skips applications where all email_events already have notion_synced=TRUE,
+    avoiding redundant API calls on re-runs.
+
+    Each dict contains:
+        application_id, company_name, role_title, category, applied_date,
+        last_activity (datetime | None),
+        email_count (int),
+        needs_review (bool),
+        event_ids (list[UUID])  — used to mark notion_synced after success.
+    """
+    # Find application_ids that have at least one unsynced event
+    unsynced_app_ids = (
+        session.query(EmailEvent.application_id)
+        .filter(EmailEvent.notion_synced.is_(False))
+        .distinct()
+        .all()
+    )
+    unsynced_ids = {row[0] for row in unsynced_app_ids}
+
+    if not unsynced_ids:
+        return []
+
+    apps = (
+        session.query(Application)
+        .filter(Application.application_id.in_(unsynced_ids))
+        .all()
+    )
+    result: List[dict[str, Any]] = []
+
+    for app in apps:
+        events = (
+            session.query(EmailEvent)
+            .filter(EmailEvent.application_id == app.application_id)
+            .all()
+        )
+
+        if events:
+            # Prefer received_at (actual email date); fall back to created_at
+            last_activity = max(
+                (e.received_at or e.created_at for e in events if (e.received_at or e.created_at)),
+                default=None,
+            )
+            email_count = len(events)
+            needs_review = any(e.category == "needs_review" for e in events)
+            event_ids = [e.id for e in events]
+        else:
+            last_activity = None
+            email_count = 0
+            needs_review = False
+            event_ids = []
+
+        result.append(
+            {
+                "application_id": app.application_id,
+                "company_name": app.company_name,
+                "role_title": app.role_title,
+                "category": app.category,
+                "applied_date": app.applied_date,
+                "last_activity": last_activity,
+                "email_count": email_count,
+                "needs_review": needs_review,
+                "event_ids": event_ids,
+            }
+        )
+
+    return result
+

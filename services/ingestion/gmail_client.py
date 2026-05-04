@@ -224,13 +224,19 @@ def _fetch_messages(service, message_ids: list[str]) -> list[dict]:
 # Public entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_new_emails(service) -> list[dict]:
-    """Return new inbox emails since the last run.
+def fetch_new_emails(service) -> tuple[list[dict], str]:
+    """Return new inbox emails since the last run, and the new historyId.
 
     Uses the Gmail History API for incremental fetches; falls back to a
     date-bounded initial fetch on first run or if historyId has expired.
 
-    Returns a list of dicts: {gmail_id, subject, sender, date, body_text}
+    IMPORTANT: The caller must call save_fetch_state(new_history_id) AFTER
+    successfully processing all emails. This ensures the cursor only advances
+    when processing is complete, making the pipeline crash-resumable.
+
+    Returns:
+        (emails, new_history_id) where emails is a list of dicts:
+        {gmail_id, subject, sender, date, body_text}
     """
     state = _load_state()
     history_id = state.get("historyId")
@@ -240,10 +246,20 @@ def fetch_new_emails(service) -> list[dict]:
     else:
         emails, new_history_id = _initial_fetch(service)
 
+    return emails, new_history_id
+
+
+def save_fetch_state(new_history_id: str) -> None:
+    """Persist the historyId cursor after successful processing.
+
+    Call this only after all emails from a fetch have been classified and
+    stored. This guarantees the cursor only advances on success, so any
+    crash mid-classification can be resumed by re-running the pipeline
+    (already-stored emails are skipped via gmail_id_exists).
+    """
     if new_history_id:
         _save_state({"historyId": new_history_id})
-
-    return emails
+        logger.debug("historyId saved: %s", new_history_id)
 
 
 def _initial_fetch(service) -> tuple[list[dict], str]:
