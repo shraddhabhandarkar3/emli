@@ -12,20 +12,12 @@ Gmail → fetch → LLM classify → ETL → Notion
 
 **Requirements:** Docker · Gmail account · Notion workspace
 
-### 1. Clone and configure
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/shraddhabhandarkar3/emli.git
 cd emli
-make setup
-```
-
-Fill in `.env` — at minimum:
-
-```bash
-NOTION_TOKEN=          # notion.so/my-integrations → create integration
-NOTION_DATABASE_ID=    # from the Notion database URL
-API_KEY=               # Groq free key: console.groq.com (or see LLM Options below)
+make setup   # creates .env from .env.example
 ```
 
 ### 2. Gmail credentials
@@ -36,16 +28,45 @@ In [Google Cloud Console](https://console.cloud.google.com): enable the Gmail AP
 make auth   # opens browser for OAuth, saves token to token/
 ```
 
-### 3. Notion database
+### 3. Notion
 
-Create a blank full-page database in Notion, share it with your integration, and copy the database ID from the URL. The pipeline auto-creates all columns on first run.
+**Create an integration:**
+1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New integration**
+2. Give it a name (e.g. "emli"), select your workspace, hit Submit
+3. Copy the **Internal Integration Token** — you'll need this in the next step
 
-### 4. Build and run
+**Create the database:**
+1. In Notion, create a new page anywhere in your workspace
+2. On the page, type `/table` → select **Table — Full page** → press Enter
+3. Give it a title (e.g. "Job Applications")
+4. Click **...** (top-right) → **Connections** → find and connect your integration
+
+**Get the database ID from the URL:**
+```
+https://www.notion.so/myworkspace/3d6b23c4f5e74a89b12cd34ef5678901?v=abc123...
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                  this is your NOTION_DATABASE_ID
+```
+It's the 32-character string between the last `/` and `?v=`.
+
+### 4. Fill in `.env`
+
+You now have everything needed. Open `.env` and set:
+
+```bash
+NOTION_TOKEN=secret_...          # Internal Integration Token from Step 3
+NOTION_DATABASE_ID=3d6b23c4...   # 32-char ID from the database URL in Step 3
+API_KEY=gsk_...                  # Groq API key — free at console.groq.com
+                                 # (or see LLM Options below for other providers)
+```
+
+### 5. Build and run
 
 ```bash
 make build
 make pipeline-docker
 ```
+
 
 ---
 
