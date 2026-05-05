@@ -60,7 +60,17 @@ API_KEY=gsk_...                  # Groq API key — free at console.groq.com
                                  # (or see LLM Options below for other providers)
 ```
 
-### 5. Build and run
+### 5. Initialise Notion schema
+
+This creates all required columns in your database immediately — no need to wait for the first pipeline run.
+
+```bash
+make setup-notion
+```
+
+You should see `✓ Notion schema ready` and your Notion database will have: Company, Role, Status, Applied Date, Last Activity, Email Count, Needs Review.
+
+### 6. Build and run
 
 ```bash
 make build
@@ -143,6 +153,7 @@ make pull-model  # one-time, ~2 GB
 | Command | Description |
 |---|---|
 | `make setup` | Copy `.env.example` → `.env`, prompt for run mode |
+| `make setup-notion` | Verify Notion connection and create required columns |
 | `make auth` | Gmail OAuth (one-time) |
 | `make build` | Build the pipeline Docker image |
 | `make pipeline-docker` | Run full pipeline once in Docker |

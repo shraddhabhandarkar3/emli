@@ -1,8 +1,9 @@
-SHELL       := /bin/bash
-VENV        := source .venv/bin/activate &&
-LLM_PROVIDER := $(shell grep ^LLM_PROVIDER .env 2>/dev/null | cut -d= -f2 | cut -d'#' -f1 | tr -d ' 	')
+SHELL        := /bin/bash
+VENV_PATH    := $(shell if [ -d .venv ]; then echo .venv; elif [ -d emli ]; then echo emli; fi)
+VENV         := $(if $(VENV_PATH),source $(VENV_PATH)/bin/activate &&,)
+LLM_PROVIDER := $(shell awk -F= '/^LLM_PROVIDER=/{gsub(/[[:space:]].*/,"",$$2); print $$2; exit}' .env 2>/dev/null)
 
-.PHONY: help setup auth fetch etl sync pipeline pipeline-docker schedule unschedule \
+.PHONY: help setup setup-notion auth fetch etl sync pipeline pipeline-docker schedule unschedule \
         scheduler build test migrate reset-db up down logs pull-model resync
 
 # ── Default ────────────────────────────────────────────────────────────────────
@@ -24,12 +25,22 @@ setup: ## Copy .env.example → .env and choose run mode
 		echo "Scheduled mode — set FETCH_INTERVAL_MINUTES in .env (default: 15)."; \
 		echo "For a daily run, set FETCH_INTERVAL_MINUTES=1440."; \
 		echo ""; \
-		echo "After filling in .env: make auth && make schedule"; \
+		echo "After filling in .env:"; \
+		echo "  make auth          # Gmail OAuth"; \
+		echo "  make setup-notion  # initialise Notion columns"; \
+		echo "  make build && make schedule"; \
 	else \
 		echo ""; \
 		echo "Manual mode — run whenever you want: make pipeline-docker"; \
-		echo "After filling in .env: make auth && make pipeline-docker"; \
+		echo ""; \
+		echo "After filling in .env:"; \
+		echo "  make auth          # Gmail OAuth"; \
+		echo "  make setup-notion  # initialise Notion columns"; \
+		echo "  make build && make pipeline-docker"; \
 	fi
+
+setup-notion: ## Verify Notion connection and initialise required columns
+	@$(VENV) PYTHONPATH=. python scripts/setup_notion.py
 
 auth: ## [RUN ONCE] Gmail OAuth — opens browser, saves token to token/
 	@$(VENV) python -m services.ingestion.token_manager
