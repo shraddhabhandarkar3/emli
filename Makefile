@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-VENV  := source emli/bin/activate &&
+VENV  := source .venv/bin/activate &&
 
 .PHONY: help setup auth fetch etl sync pipeline pipeline-docker schedule unschedule \
         scheduler build test migrate reset-db up down logs pull-model resync

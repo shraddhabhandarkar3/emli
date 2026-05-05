@@ -204,7 +204,7 @@ db/
 ## Local development
 
 ```bash
-python -m venv emli && source emli/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 make up        # start Postgres + Ollama
 make pipeline  # run locally against Docker infra
