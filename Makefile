@@ -39,8 +39,9 @@ setup: ## Copy .env.example → .env and choose run mode
 		echo "  make build && make pipeline-docker"; \
 	fi
 
-setup-notion: ## Verify Notion connection and initialise required columns
-	@$(VENV) PYTHONPATH=. python scripts/setup_notion.py
+setup-notion: ## Verify Notion connection and initialise required columns (requires: make build)
+	@docker compose --profile pipeline run --rm --entrypoint "" -e PYTHONPATH=/app pipeline \
+		python scripts/setup_notion.py
 
 auth: ## [RUN ONCE] Gmail OAuth — opens browser, saves token to token/
 	@$(VENV) python -m services.ingestion.token_manager

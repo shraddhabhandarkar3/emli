@@ -10,7 +10,7 @@ Gmail → fetch → LLM classify → ETL → Notion
 
 ## Setup
 
-**Requirements:** Docker · Gmail account · Notion workspace
+**Requirements:** Docker · Python 3.8+ · Gmail account · Notion workspace
 
 ### 1. Clone the repo
 
@@ -24,8 +24,11 @@ make setup   # creates .env from .env.example
 
 In [Google Cloud Console](https://console.cloud.google.com): enable the Gmail API, create an OAuth 2.0 Desktop client, download the JSON, and save it as `client_secret.json` in the project root.
 
+Install dependencies and run the one-time OAuth flow (opens a browser):
+
 ```bash
-make auth   # opens browser for OAuth, saves token to token/
+pip install -r requirements.txt
+make auth
 ```
 
 ### 3. Notion
@@ -60,9 +63,15 @@ API_KEY=gsk_...                  # Groq API key — free at console.groq.com
                                  # (or see LLM Options below for other providers)
 ```
 
-### 5. Initialise Notion schema
+### 5. Build the Docker image
 
-This creates all required columns in your database immediately — no need to wait for the first pipeline run.
+```bash
+make build
+```
+
+### 6. Initialise Notion schema
+
+Runs inside the Docker image — creates all required columns in your Notion database immediately.
 
 ```bash
 make setup-notion
@@ -70,10 +79,9 @@ make setup-notion
 
 You should see `✓ Notion schema ready` and your Notion database will have: Company, Role, Status, Applied Date, Last Activity, Email Count, Needs Review.
 
-### 6. Build and run
+### 7. Run
 
 ```bash
-make build
 make pipeline-docker
 ```
 
