@@ -32,8 +32,8 @@ services:
       - ollama_data:/root/.ollama
 
   # ── Pipeline (one-shot: fetch → ETL → Notion sync) ─────────────────────────
-  # Not started by `docker compose up`. Run via: make pipeline-docker
-  # Requires token/ and client_secret.json to exist (run `make auth` first).
+  # Not started by `docker compose up` — use `make pipeline-docker` instead.
+  # Requires token/ and client_secret.json in the project root.
   pipeline:
     build: .
     image: emli-pipeline:latest
@@ -52,6 +52,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # ── Scheduler (runs pipeline every FETCH_INTERVAL_MINUTES) ─────────────────
+  # Long-running background service. Start with `make schedule`, stop with `make unschedule`.
+  scheduler:
+    build: .
+    image: emli-pipeline:latest
+    container_name: emli_scheduler
+    profiles: [scheduler]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-emli}:${POSTGRES_PASSWORD:-emli}@postgres:5432/${POSTGRES_DB:-emli}
+      OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      - ./token:/app/token
+      - ./client_secret.json:/app/client_secret.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "services.ingestion.scheduler"]
 
 volumes:
   emli_pgdata:

@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 VENV  := source emli/bin/activate &&
 
-.PHONY: help setup auth fetch etl sync pipeline pipeline-docker scheduler \
-        build test migrate reset-db up down logs pull-model resync
+.PHONY: help setup auth fetch etl sync pipeline pipeline-docker schedule unschedule \
+        scheduler build test migrate reset-db up down logs pull-model resync
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help: ## Show available targets
@@ -11,19 +11,23 @@ help: ## Show available targets
 	@echo ""
 
 # ── First-time setup ───────────────────────────────────────────────────────────
-setup: ## Copy .env.example → .env and print setup instructions
-	@if [ ! -f .env ]; then \
-		cp .env.example .env; \
-		echo "✓ .env created — fill in your keys before running the pipeline."; \
+setup: ## Copy .env.example → .env and choose run mode
+	@if [ ! -f .env ]; then cp .env.example .env; echo "✓ .env created"; else echo "✓ .env already exists"; fi
+	@echo ""
+	@echo "Required — fill these in before running:"
+	@echo "  NOTION_TOKEN, NOTION_DATABASE_ID, API_KEY (or set LLM_PROVIDER=ollama)"
+	@echo ""
+	@printf "Run automatically on a schedule? [y/N] "; read choice; \
+	if [ "$$choice" = "y" ] || [ "$$choice" = "Y" ]; then \
 		echo ""; \
-		echo "  Required:"; \
-		echo "    NOTION_TOKEN        — from https://www.notion.so/my-integrations"; \
-		echo "    NOTION_DATABASE_ID  — from your Notion database URL"; \
-		echo "    API_KEY             — Groq (free): https://console.groq.com"; \
+		echo "Scheduled mode — set FETCH_INTERVAL_MINUTES in .env (default: 15)."; \
+		echo "For a daily run, set FETCH_INTERVAL_MINUTES=1440."; \
 		echo ""; \
-		echo "  Then run: make auth && make pipeline-docker"; \
+		echo "After filling in .env: make auth && make schedule"; \
 	else \
-		echo "✓ .env already exists."; \
+		echo ""; \
+		echo "Manual mode — run whenever you want: make pipeline-docker"; \
+		echo "After filling in .env: make auth && make pipeline-docker"; \
 	fi
 
 auth: ## [RUN ONCE] Gmail OAuth — opens browser, saves token to token/
@@ -65,12 +69,22 @@ scheduler: ## Run the full pipeline on a loop (Ctrl+C to stop)
 build: ## Build the pipeline Docker image
 	docker compose build pipeline
 
-pipeline-docker: ## Run full pipeline in Docker (no local Python needed)
+pipeline-docker: ## Run full pipeline once in Docker
 	@echo "── Starting infrastructure ────────────────────────────"
 	@docker compose up -d postgres ollama
-	@echo "── Running pipeline container ─────────────────────────"
+	@echo "── Running pipeline ───────────────────────────────────"
 	@docker compose --profile pipeline run --rm pipeline
 	@echo "✓ Pipeline complete!"
+
+schedule: ## Start the pipeline on a recurring schedule (background)
+	@docker compose up -d postgres ollama
+	@docker compose --profile scheduler up -d scheduler
+	@echo "✓ Scheduler running every $$(grep ^FETCH_INTERVAL_MINUTES .env | cut -d= -f2 | tr -d ' ') minutes"
+	@echo "  Logs: make logs | Stop: make unschedule"
+
+unschedule: ## Stop the scheduled pipeline
+	@docker compose --profile scheduler stop scheduler
+	@echo "✓ Scheduler stopped"
 
 # ── Testing ────────────────────────────────────────────────────────────────────
 test: ## Run the test suite (local)

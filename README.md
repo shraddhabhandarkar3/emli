@@ -1,147 +1,159 @@
-# emli — Email Job Application Tracker
+# emli
 
-Automatically pulls job-related emails from Gmail, classifies them with an LLM, and keeps a Notion database up-to-date — no manual data entry required.
+Pulls job-related emails from Gmail, classifies them with an LLM, and keeps a Notion database in sync. Runs as a single command — no manual data entry.
 
 ```
-Gmail → Fetch → Classify (LLM) → ETL → Notion
+Gmail → fetch → LLM classify → ETL → Notion
 ```
 
 ---
 
-## Quickstart (Docker)
+## Setup
 
-> **Requirements:** Docker Desktop · A Gmail account · A Notion workspace
+**Requirements:** Docker · Gmail account · Notion workspace
 
-### 1. Clone & configure
+### 1. Clone and configure
 
 ```bash
-git clone https://github.com/your-username/emli.git
+git clone https://github.com/shraddhabhandarkar3/emli.git
 cd emli
-make setup          # creates .env from .env.example
+make setup
 ```
 
-Open `.env` and fill in the three required values:
+Fill in `.env` — at minimum:
 
 ```bash
-NOTION_TOKEN=secret_...        # https://www.notion.so/my-integrations
-NOTION_DATABASE_ID=...         # from your Notion DB URL (see below)
-API_KEY=gsk_...                # Groq free key: https://console.groq.com
+NOTION_TOKEN=          # notion.so/my-integrations → create integration
+NOTION_DATABASE_ID=    # from the Notion database URL
+API_KEY=               # Groq free key: console.groq.com (or see LLM Options below)
 ```
 
-### 2. Google credentials
+### 2. Gmail credentials
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services** → **Credentials**
-2. Create an **OAuth 2.0 Client ID** (Desktop app type), enable the **Gmail API**
-3. Download the JSON and rename it to **`client_secret.json`** in the project root
-4. Run the one-time OAuth flow (opens your browser):
-   ```bash
-   make auth
-   ```
+In [Google Cloud Console](https://console.cloud.google.com): enable the Gmail API, create an OAuth 2.0 Desktop client, download the JSON, and save it as `client_secret.json` in the project root.
+
+```bash
+make auth   # opens browser for OAuth, saves token to token/
+```
 
 ### 3. Notion database
 
-1. Create a blank **full-page database** in Notion (any name)
-2. Click **Share** → invite your integration
-3. Copy the database ID from the URL:
-   ```
-   https://notion.so/your-workspace/THIS-IS-THE-ID?v=...
-   ```
-4. Paste it as `NOTION_DATABASE_ID` in `.env`
+Create a blank full-page database in Notion, share it with your integration, and copy the database ID from the URL. The pipeline auto-creates all columns on first run.
 
-> The pipeline auto-configures all columns (Company, Role, Status, Applied Date, etc.) on first run — no manual setup needed.
-
-### 4. Run
+### 4. Build and run
 
 ```bash
+make build
 make pipeline-docker
 ```
-
-That's it. Check your Notion database — it should populate within a minute or two.
 
 ---
 
 ## Daily use
 
-Run the pipeline each morning to pull in new emails:
-
 ```bash
 make pipeline-docker
 ```
 
-The pipeline is **incremental** — it only fetches emails since the last run. If it crashes mid-way, re-running picks up exactly where it left off (already-processed emails are skipped).
+Picks up only emails since the last run. If it crashes mid-batch, re-running resumes from the same point — already-processed emails are skipped.
 
 ---
 
-## LLM Options
+## Scheduled mode
 
-Set `LLM_PROVIDER` in `.env` to choose your classifier:
+**Option A — interval loop (Docker-managed)**
 
-| Provider | `LLM_PROVIDER` | `API_BASE_URL` | Cost | Speed |
-|---|---|---|---|---|
-| **Groq** *(recommended)* | `api` | `https://api.groq.com/openai/v1` | Free (14k req/day) | Fast |
-| **NVIDIA NIM** | `api` | `https://integrate.api.nvidia.com/v1` | Free (40 RPM) | Slow |
-| **OpenAI** | `api` | *(leave blank)* | Paid | Fast |
-| **Ollama** *(local)* | `ollama` | `http://ollama:11434` | Free | Slow |
+```bash
+# Set interval in .env (e.g. 1440 for once a day)
+FETCH_INTERVAL_MINUTES=1440
 
-For Groq (recommended):
+make schedule    # starts in the background, restarts on reboot
+make unschedule  # stop it
+make logs        # follow output
+```
+
+**Option B — specific time (system cron)**
+
+More precise if you want it to run at a fixed time, e.g. every morning at 8 AM:
+
+```bash
+crontab -e
+```
+```
+0 8 * * * cd /path/to/emli && make pipeline-docker >> /tmp/emli.log 2>&1
+```
+
+Docker only needs to be running when the cron fires at 8:00 AM — you can close it after the pipeline finishes (usually a few minutes). On macOS, enable **"Start Docker Desktop when you log in"** in Docker Desktop → Settings so it's always ready. On Linux, Docker runs as a system service and works without any extra setup.
+
+---
+
+## LLM options
+
+Set `LLM_PROVIDER=ollama` for local inference or `LLM_PROVIDER=api` for an external provider.
+
+| Provider | `API_BASE_URL` | Free tier | Speed |
+|---|---|---|---|
+| **Groq** *(default)* | `https://api.groq.com/openai/v1` | 14k req/day | Fast |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | 40 RPM | Slow |
+| OpenAI | *(leave blank)* | No | Fast |
+| Ollama | `http://ollama:11434` | Unlimited | Slow |
+
+For Groq:
 ```bash
 LLM_PROVIDER=api
 API_BASE_URL=https://api.groq.com/openai/v1
 API_KEY=gsk_...
 API_MODEL=llama-3.3-70b-versatile
 LLM_TIMEOUT=30
-LLM_BATCH_SIZE=0      # Groq handles rate limits gracefully — no manual pausing needed
+LLM_BATCH_SIZE=0  # Groq handles its own backpressure
 ```
 
 For Ollama (no API key):
 ```bash
 LLM_PROVIDER=ollama
 OLLAMA_MODEL=llama3.2:3b
-# Pull the model once:
-make pull-model
+make pull-model  # one-time, ~2 GB
 ```
 
 ---
 
-## Make targets
+## Commands
 
-```
-make setup            First-time setup — copy .env.example and print instructions
-make auth             Gmail OAuth (one-time, opens browser)
-make pipeline-docker  Run full pipeline in Docker ← daily use
-make pipeline         Run full pipeline locally (requires Python venv)
-make build            Build the pipeline Docker image
-make up               Start Postgres + Ollama
-make down             Stop all containers
-make logs             Follow container logs
-make pull-model       Pull the Ollama model into Docker volume (~2 GB)
-make fetch            Fetch & classify emails only (local)
-make etl              Rebuild applications table (local)
-make sync             Sync to Notion (local)
-make resync           Force re-sync all rows to Notion
-make migrate          Apply pending DB migrations
-make reset-db         ⚠ Wipe and recreate DB (dev only)
-make test             Run test suite (local)
-make test-docker      Run test suite in Docker
-```
+| Command | Description |
+|---|---|
+| `make setup` | Copy `.env.example` → `.env`, prompt for run mode |
+| `make auth` | Gmail OAuth (one-time) |
+| `make build` | Build the pipeline Docker image |
+| `make pipeline-docker` | Run full pipeline once in Docker |
+| `make schedule` | Start pipeline on a recurring schedule (background) |
+| `make unschedule` | Stop the scheduled pipeline |
+| `make pipeline` | Run full pipeline locally (requires venv) |
+| `make up` / `make down` | Start / stop infrastructure |
+| `make logs` | Follow container logs |
+| `make pull-model` | Pull Ollama model into Docker volume |
+| `make fetch` | Fetch and classify only (local) |
+| `make etl` | Rebuild applications table (local) |
+| `make sync` | Push to Notion (local) |
+| `make resync` | Re-push everything to Notion |
+| `make migrate` | Apply Alembic migrations |
+| `make reset-db` | ⚠ Wipe and recreate the database |
+| `make test` | Run test suite |
 
 ---
 
 ## Troubleshooting
 
-**`invalid_grant: Bad Request`** — OAuth token expired. Run `make auth` to refresh.
+**`invalid_grant: Bad Request`** — OAuth token expired. Re-run `make auth`.
 
-**`historyId` cursor issues** — If you want to re-fetch a time window:
+**Re-fetching a time window:**
 ```bash
 rm token/gmail_state.json
-GMAIL_FETCH_DAYS=7   # add to .env temporarily
+# set GMAIL_FETCH_DAYS=7 in .env temporarily
 make pipeline-docker
 ```
-Already-stored emails are skipped automatically — no duplicates.
+Already-stored emails are skipped automatically.
 
-**Rate limit 429** — The pipeline handles this automatically (sleeps and retries). If using NVIDIA NIM, set `LLM_TIMEOUT=120` in `.env`.
-
-**Notion schema missing columns** — The pipeline auto-creates them on every sync via `ensure_schema`. Just re-run `make sync`.
+**429 rate limit** — handled automatically with backoff. For NVIDIA NIM, set `LLM_TIMEOUT=120`.
 
 ---
 
@@ -149,36 +161,30 @@ Already-stored emails are skipped automatically — no duplicates.
 
 ```
 services/
-  ingestion/      Gmail fetch + LLM classify + store → email_events table
-  etl/            email_events → applications table (grouping + dedup)
-  notion_sync/    applications table → Notion database (upsert)
-  classifier/     LLM client (Ollama / OpenAI-compatible API)
+  ingestion/    Gmail fetch + LLM classify → email_events
+  etl/          email_events → applications (grouping, dedup)
+  notion_sync/  applications → Notion (upsert, schema management)
+  classifier/   LLM client (Ollama / OpenAI-compatible)
 db/
-  models.py       SQLAlchemy models
-  repository.py   CRUD layer
-  migrations/     Alembic migrations
+  models.py     SQLAlchemy models
+  repository.py CRUD layer
+  migrations/   Alembic migrations
 ```
 
-Data flow:
-1. **Fetch** — Gmail History API pulls emails since last run (incremental)
-2. **Classify** — LLM determines if job-related, extracts company + role + status
-3. **Store** — Saves to `email_events` (idempotent via `gmail_id` unique key)
-4. **ETL** — Groups events by company+role into `applications`, derives status timeline
-5. **Sync** — Upserts each application to Notion, auto-configures DB schema
+**Data flow:**
+1. Gmail History API fetches emails incrementally (historyId cursor)
+2. LLM classifies each email — job-related or not, extracts company/role/status
+3. Job-related emails written to `email_events` (idempotent on `gmail_id`)
+4. ETL groups events by company+role into `applications`, resolves status
+5. Notion sync upserts each application, patching schema on first run
 
 ---
 
-## Development
+## Local development
 
 ```bash
-# Create venv and install deps
-python -m venv emli
-source emli/bin/activate
+python -m venv emli && source emli/bin/activate
 pip install -r requirements.txt
-
-# Start infrastructure
-make up
-
-# Run the pipeline locally (faster iteration than Docker)
-make pipeline
+make up        # start Postgres + Ollama
+make pipeline  # run locally against Docker infra
 ```
