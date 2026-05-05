@@ -1,5 +1,6 @@
-SHELL := /bin/bash
-VENV  := source .venv/bin/activate &&
+SHELL       := /bin/bash
+VENV        := source .venv/bin/activate &&
+LLM_PROVIDER := $(shell grep ^LLM_PROVIDER .env 2>/dev/null | cut -d= -f2 | cut -d'#' -f1 | tr -d ' 	')
 
 .PHONY: help setup auth fetch etl sync pipeline pipeline-docker schedule unschedule \
         scheduler build test migrate reset-db up down logs pull-model resync
@@ -71,13 +72,15 @@ build: ## Build the pipeline Docker image
 
 pipeline-docker: ## Run full pipeline once in Docker
 	@echo "── Starting infrastructure ────────────────────────────"
-	@docker compose up -d postgres ollama
+	@docker compose up -d postgres
+	@if [ "$(LLM_PROVIDER)" != "api" ]; then docker compose up -d ollama; fi
 	@echo "── Running pipeline ───────────────────────────────────"
 	@docker compose --profile pipeline run --rm pipeline
 	@echo "✓ Pipeline complete!"
 
 schedule: ## Start the pipeline on a recurring schedule (background)
-	@docker compose up -d postgres ollama
+	@docker compose up -d postgres
+	@if [ "$(LLM_PROVIDER)" != "api" ]; then docker compose up -d ollama; fi
 	@docker compose --profile scheduler up -d scheduler
 	@echo "✓ Scheduler running every $$(grep ^FETCH_INTERVAL_MINUTES .env | cut -d= -f2 | tr -d ' ') minutes"
 	@echo "  Logs: make logs | Stop: make unschedule"
