@@ -1,33 +1,69 @@
-SHELL := /bin/bash
-VENV  := source emli/bin/activate &&
+SHELL        := /bin/bash
+VENV_PATH    := $(shell if [ -d .venv ]; then echo .venv; elif [ -d emli ]; then echo emli; fi)
+VENV         := $(if $(VENV_PATH),source $(VENV_PATH)/bin/activate &&,)
+LLM_PROVIDER := $(shell awk -F= '/^LLM_PROVIDER=/{gsub(/[[:space:]].*/,"",$$2); print $$2; exit}' .env 2>/dev/null)
 
-.PHONY: help auth fetch etl sync pipeline scheduler test migrate reset-db up down logs pull-model
+.PHONY: help setup setup-notion auth fetch etl sync pipeline pipeline-docker schedule unschedule \
+        scheduler build test migrate reset-db up down logs pull-model resync
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
-# ── One-time setup ─────────────────────────────────────────────────────────────
+# ── First-time setup ───────────────────────────────────────────────────────────
+setup: ## Copy .env.example → .env and choose run mode
+	@if [ ! -f .env ]; then cp .env.example .env; echo "✓ .env created"; else echo "✓ .env already exists"; fi
+	@echo ""
+	@echo "Required — fill these in before running:"
+	@echo "  NOTION_TOKEN, NOTION_DATABASE_ID, API_KEY (or set LLM_PROVIDER=ollama)"
+	@echo ""
+	@printf "Run automatically on a schedule? [y/N] "; read choice; \
+	if [ "$$choice" = "y" ] || [ "$$choice" = "Y" ]; then \
+		echo ""; \
+		echo "Scheduled mode — set FETCH_INTERVAL_MINUTES in .env (default: 15)."; \
+		echo "For a daily run, set FETCH_INTERVAL_MINUTES=1440."; \
+		echo ""; \
+		echo "After filling in .env:"; \
+		echo "  make auth          # Gmail OAuth"; \
+		echo "  make setup-notion  # initialise Notion columns"; \
+		echo "  make build && make schedule"; \
+	else \
+		echo ""; \
+		echo "Manual mode — run whenever you want: make pipeline-docker"; \
+		echo ""; \
+		echo "After filling in .env:"; \
+		echo "  make auth          # Gmail OAuth"; \
+		echo "  make setup-notion  # initialise Notion columns"; \
+		echo "  make build && make pipeline-docker"; \
+	fi
+
+setup-notion: ## Create the Notion Applications database and write NOTION_DATABASE_ID to .env
+	@$(VENV) PYTHONPATH=. python scripts/setup_notion.py
+
 auth: ## [RUN ONCE] Gmail OAuth — opens browser, saves token to token/
 	@$(VENV) python -m services.ingestion.token_manager
 
-# ── Local dev ──────────────────────────────────────────────────────────────────
-fetch: ## Run the email ingestion script once (local)
+# ── Local dev (requires Python venv) ──────────────────────────────────────────
+fetch: ## Fetch & classify new emails (local)
 	@$(VENV) python -m services.ingestion.run_fetch
 
-etl: ## Run the applications ETL job (email_events → applications table)
+etl: ## Rebuild applications table from email_events (local)
 	@$(VENV) python -m services.etl.run_etl
 
-sync: ## Sync unsynced applications to Notion database
+sync: ## Sync unsynced applications to Notion (local)
 	@$(VENV) python -m services.notion_sync.run_sync
 
 resync: ## Force re-sync ALL applications to Notion (resets synced flags first)
-	@$(VENV) python -c "from db.session import get_session; from db.models import EmailEvent; from sqlalchemy import update; s=get_session().__enter__(); s.execute(update(EmailEvent).values(notion_synced=False)); print('✓ Reset notion_synced for all rows')"
+	@$(VENV) python -c "\
+from db.session import get_session; from db.models import EmailEvent; \
+from sqlalchemy import update; s=get_session().__enter__(); \
+s.execute(update(EmailEvent).values(notion_synced=False)); \
+print('✓ Reset notion_synced for all rows')"
 	@$(VENV) python -m services.notion_sync.run_sync
 
-pipeline: ## Run the full pipeline once: start DB → fetch → ETL → Notion sync
+pipeline: ## Run full pipeline locally: start infra → fetch → ETL → Notion sync
 	@echo "── Starting services ──────────────────────────────────"
 	@$(MAKE) up
 	@echo "── Step 1/3: Fetching emails ──────────────────────────"
@@ -41,8 +77,35 @@ pipeline: ## Run the full pipeline once: start DB → fetch → ETL → Notion s
 scheduler: ## Run the full pipeline on a loop (Ctrl+C to stop)
 	@$(VENV) python -m services.ingestion.scheduler
 
-test: ## Run the test suite
+# ── Docker pipeline (no local Python required) ─────────────────────────────────
+build: ## Build the pipeline Docker image
+	docker compose build pipeline
+
+pipeline-docker: ## Run full pipeline once in Docker
+	@echo "── Starting infrastructure ────────────────────────────"
+	@docker compose up -d postgres
+	@if [ "$(LLM_PROVIDER)" != "api" ]; then docker compose up -d ollama; fi
+	@echo "── Running pipeline ───────────────────────────────────"
+	@docker compose --profile pipeline run --rm pipeline
+	@echo "✓ Pipeline complete!"
+
+schedule: ## Start the pipeline on a recurring schedule (background)
+	@docker compose up -d postgres
+	@if [ "$(LLM_PROVIDER)" != "api" ]; then docker compose up -d ollama; fi
+	@docker compose --profile scheduler up -d scheduler
+	@echo "✓ Scheduler running every $$(grep ^FETCH_INTERVAL_MINUTES .env | cut -d= -f2 | tr -d ' ') minutes"
+	@echo "  Logs: make logs | Stop: make unschedule"
+
+unschedule: ## Stop the scheduled pipeline
+	@docker compose --profile scheduler stop scheduler
+	@echo "✓ Scheduler stopped"
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+test: ## Run the test suite (local)
 	@$(VENV) python -m pytest tests/ -v
+
+test-docker: ## Run the test suite inside Docker
+	@docker compose --profile pipeline run --rm --entrypoint "" pipeline python -m pytest tests/ -v
 
 # ── Database ───────────────────────────────────────────────────────────────────
 migrate: ## Apply pending Alembic migrations
@@ -50,21 +113,21 @@ migrate: ## Apply pending Alembic migrations
 
 reset-db: ## ⚠ Wipe DB volume and re-run migrations (dev only)
 	docker compose stop postgres
-	docker volume rm emli_emli_pgdata || true
+	docker volume rm emli_pgdata || true
 	docker compose up -d postgres
 	@echo "Waiting for Postgres to be ready…" && sleep 5
 	@$(VENV) alembic upgrade head
 	@echo "✓ DB reset complete"
 
-# ── Docker ─────────────────────────────────────────────────────────────────────
+# ── Docker infra ────────────────────────────────────────────────────────────────
 up: ## Start Postgres + Ollama
 	docker compose up -d
 
-pull-model: ## [RUN ONCE] Pull the Ollama model into the volume (~2 GB)
-	docker exec emli_ollama ollama pull $$(grep OLLAMA_MODEL .env | cut -d= -f2)
-
-down: ## Stop containers (data preserved in volumes)
+down: ## Stop all containers (data preserved in volumes)
 	docker compose down
 
 logs: ## Follow all container logs
 	docker compose logs -f
+
+pull-model: ## [RUN ONCE] Pull the Ollama model into the volume (~2 GB)
+	docker exec emli_ollama ollama pull $$(grep ^OLLAMA_MODEL .env | cut -d= -f2 | tr -d ' ')

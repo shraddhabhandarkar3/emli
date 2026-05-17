@@ -2,10 +2,12 @@
 .env
 token/
 credentials.json
+client_secret.json
 client_secret_*.json
 
 # ── Python ────────────────────────────────────────────────────────────────────
-emli/              # virtual environment
+.venv/             # standard venv
+emli/              # legacy venv (kept for backwards compat)
 __pycache__/
 *.py[cod]
 *.pyo
