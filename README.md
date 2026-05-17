@@ -36,55 +36,63 @@ make auth
 **Create an integration:**
 1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New integration**
 2. Give it a name (e.g. "emli"), select your workspace, hit Submit
-3. Copy the **Internal Integration Token** — you'll need this in the next step
+3. Under **Capabilities**, enable Read content, Insert content, and Update content
+4. Copy the **Internal Integration Token** — paste it as `NOTION_TOKEN` in `.env`
 
-**Create the database:**
-1. In Notion, create a new page anywhere in your workspace
-2. On the page, type `/table` → select **Table — Full page** → press Enter
-3. Give it a title (e.g. "Job Applications")
-4. Click **...** (top-right) → **Connections** → find and connect your integration
+**Create a page and share it:**
+1. In Notion, create a new page anywhere in your workspace (this is where the Applications database will live)
+2. Click **...** (top-right of the page) → **Connections** → find and connect your integration
+3. Copy the page ID from the URL:
 
-**Get the database ID from the URL:**
 ```
-https://www.notion.so/myworkspace/3d6b23c4f5e74a89b12cd34ef5678901?v=abc123...
-                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                                  this is your NOTION_DATABASE_ID
+https://www.notion.so/myworkspace/My-Page-3d6b23c4f5e74a89b12cd34ef5678901
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                             this is your NOTION_PAGE_ID
 ```
-It's the 32-character string between the last `/` and `?v=`.
+
+It's the 32-character hex string at the end of the URL (ignore any dashes).
 
 ### 4. Fill in `.env`
 
-You now have everything needed. Open `.env` and set:
-
 ```bash
-NOTION_TOKEN=secret_...          # Internal Integration Token from Step 3
-NOTION_DATABASE_ID=3d6b23c4...   # 32-char ID from the database URL in Step 3
-API_KEY=gsk_...                  # Groq API key — free at console.groq.com
-                                 # (or see LLM Options below for other providers)
+NOTION_TOKEN=secret_...      # Internal Integration Token from Step 3
+NOTION_PAGE_ID=3d6b23c4...   # 32-char page ID from Step 3
+API_KEY=gsk_...              # Groq API key — free at console.groq.com
+                             # (or see LLM Options below for other providers)
 ```
 
-### 5. Build the Docker image
-
-```bash
-make build
-```
-
-### 6. Initialise Notion schema
-
-Runs inside the Docker image — creates all required columns in your Notion database immediately.
+### 5. Create the Notion database
 
 ```bash
 make setup-notion
 ```
 
-You should see `✓ Notion schema ready` and your Notion database will have: Company, Role, Status, Applied Date, Last Activity, Email Count, Needs Review.
+This creates the Applications database inside your Notion page with all required columns and writes `NOTION_DATABASE_ID` to your `.env` automatically. You should see:
+
+```
+✓  Applications database created.
+   NOTION_DATABASE_ID=... written to .env
+```
+
+Running it again confirms everything is configured:
+
+```
+✓  Notion already configured.
+```
+
+### 6. Build the Docker image
+
+```bash
+make build
+```
 
 ### 7. Run
+
+> **Default: API mode (Groq).** The pipeline uses an external LLM by default — fast, accurate, and free within Groq's daily limits. If you'd prefer to keep your data fully private and have a capable machine (8 GB+ RAM), you can switch to a local model with Ollama instead. See [LLM options](#llm-options) below.
 
 ```bash
 make pipeline-docker
 ```
-
 
 ---
 
@@ -122,7 +130,7 @@ crontab -e
 0 8 * * * cd /path/to/emli && make pipeline-docker >> /tmp/emli.log 2>&1
 ```
 
-Docker only needs to be running when the cron fires at 8:00 AM — you can close it after the pipeline finishes (usually a few minutes). On macOS, enable **"Start Docker Desktop when you log in"** in Docker Desktop → Settings so it's always ready. On Linux, Docker runs as a system service and works without any extra setup.
+Docker only needs to be running when the cron fires — you can close it after the pipeline finishes. On macOS, enable **"Start Docker Desktop when you log in"** in Docker Desktop → Settings so it's always ready.
 
 ---
 
@@ -161,15 +169,15 @@ make pull-model  # one-time, ~2 GB
 | Command | Description |
 |---|---|
 | `make setup` | Copy `.env.example` → `.env`, prompt for run mode |
-| `make setup-notion` | Verify Notion connection and create required columns |
-| `make auth` | Gmail OAuth (one-time) |
+| `make auth` | Gmail OAuth (run once) |
+| `make setup-notion` | Create Notion database and write `NOTION_DATABASE_ID` to `.env` |
 | `make build` | Build the pipeline Docker image |
 | `make pipeline-docker` | Run full pipeline once in Docker |
 | `make schedule` | Start pipeline on a recurring schedule (background) |
 | `make unschedule` | Stop the scheduled pipeline |
+| `make logs` | Follow container logs |
 | `make pipeline` | Run full pipeline locally (requires venv) |
 | `make up` / `make down` | Start / stop infrastructure |
-| `make logs` | Follow container logs |
 | `make pull-model` | Pull Ollama model into Docker volume |
 | `make fetch` | Fetch and classify only (local) |
 | `make etl` | Rebuild applications table (local) |
@@ -203,7 +211,7 @@ Already-stored emails are skipped automatically.
 services/
   ingestion/    Gmail fetch + LLM classify → email_events
   etl/          email_events → applications (grouping, dedup)
-  notion_sync/  applications → Notion (upsert, schema management)
+  notion_sync/  applications → Notion (upsert)
   classifier/   LLM client (Ollama / OpenAI-compatible)
 db/
   models.py     SQLAlchemy models
@@ -216,7 +224,7 @@ db/
 2. LLM classifies each email — job-related or not, extracts company/role/status
 3. Job-related emails written to `email_events` (idempotent on `gmail_id`)
 4. ETL groups events by company+role into `applications`, resolves status
-5. Notion sync upserts each application, patching schema on first run
+5. Notion sync upserts each application row into the Applications database
 
 ---
 

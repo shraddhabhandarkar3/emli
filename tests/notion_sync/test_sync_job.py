@@ -52,10 +52,9 @@ def _make_app(
 @patch("services.notion_sync.sync_job.mark_notion_synced")
 @patch("services.notion_sync.sync_job.upsert_page", return_value="new-page-id")
 @patch("services.notion_sync.sync_job.find_page", return_value=None)  # not found → create
-@patch("services.notion_sync.sync_job.ensure_schema")
 @patch("services.notion_sync.sync_job.get_applications_with_stats")
 def test_new_application_creates_page(
-    mock_get_apps, mock_ensure, mock_find, mock_upsert, mock_mark
+    mock_get_apps, mock_find, mock_upsert, mock_mark
 ):
     """When no Notion page exists for the application, create a new one."""
     session = MagicMock()
@@ -78,10 +77,9 @@ def test_new_application_creates_page(
 @patch("services.notion_sync.sync_job.mark_notion_synced")
 @patch("services.notion_sync.sync_job.upsert_page", return_value="existing-page-id")
 @patch("services.notion_sync.sync_job.find_page", return_value="existing-page-id")  # found → update
-@patch("services.notion_sync.sync_job.ensure_schema")
 @patch("services.notion_sync.sync_job.get_applications_with_stats")
 def test_existing_application_updates_page(
-    mock_get_apps, mock_ensure, mock_find, mock_upsert, mock_mark
+    mock_get_apps, mock_find, mock_upsert, mock_mark
 ):
     """When a Notion page already exists, it should be patched, not created."""
     session = MagicMock()
@@ -103,10 +101,9 @@ def test_existing_application_updates_page(
 @patch("services.notion_sync.sync_job.upsert_page",
        side_effect=Exception("Notion 500"))  # simulate API failure
 @patch("services.notion_sync.sync_job.find_page", return_value=None)
-@patch("services.notion_sync.sync_job.ensure_schema")
 @patch("services.notion_sync.sync_job.get_applications_with_stats")
 def test_notion_failure_does_not_mark_synced(
-    mock_get_apps, mock_ensure, mock_find, mock_upsert, mock_mark
+    mock_get_apps, mock_find, mock_upsert, mock_mark
 ):
     """On API failure, notion_synced must NOT be marked and script continues."""
     session = MagicMock()
@@ -128,10 +125,9 @@ def test_notion_failure_does_not_mark_synced(
 @patch("services.notion_sync.sync_job.mark_notion_synced")
 @patch("services.notion_sync.sync_job.upsert_page")
 @patch("services.notion_sync.sync_job.find_page")
-@patch("services.notion_sync.sync_job.ensure_schema")
 @patch("services.notion_sync.sync_job.get_applications_with_stats", return_value=[])
 def test_empty_applications_returns_zero(
-    mock_get_apps, mock_ensure, mock_find, mock_upsert, mock_mark
+    mock_get_apps, mock_find, mock_upsert, mock_mark
 ):
     """No applications → (0, 0) and no API calls."""
     from services.notion_sync.sync_job import run_sync
